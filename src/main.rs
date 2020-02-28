@@ -73,10 +73,14 @@ fn main() {
     let (device, mut queues) = init().expect("Failed to initialise Vulkan");
     let queue = queues.next().unwrap();
 
+    let capacity = 10000000;
+    let values = [148027u32, 46782, 723050, 448028, 627428, 777463, 135229, 1514122, 134703, 1237801, 1487872, 84249, 1308022, 1339235, 188378, 238735, 556674, 762632, 291605, 1530454, 1127614, 1224598, 1324439, 217678, 99375];
+    let weights = [739689u32, 1216862, 1128031, 174186, 162457, 150588, 575461, 1215977, 889610, 394517, 675356, 275908, 1302010, 621521, 807475, 471994, 1012170, 1292957, 1024932, 1288316, 776314, 918394, 1436776, 150168, 1058804];
+
     // 16341
-    let capacity = 10000;
-    let values = [795u32, 435, 499, 56, 268, 958, 1495, 425, 1340, 512, 126, 1210, 97, 1281, 922, 915, 557, 709, 1524, 81, 186, 1288, 1075, 1007, 714];
-    let weights = [424u32, 876, 248, 1279, 829, 286, 1066, 1371, 384, 315, 762, 182, 289, 914, 419, 997, 1492, 736, 1069, 978, 513, 624, 1146, 482, 224];
+//    let capacity = 10000;
+//    let values = [795u32, 435, 499, 56, 268, 958, 1495, 425, 1340, 512, 126, 1210, 97, 1281, 922, 915, 557, 709, 1524, 81, 186, 1288, 1075, 1007, 714];
+//    let weights = [424u32, 876, 248, 1279, 829, 286, 1066, 1371, 384, 315, 762, 182, 289, 914, 419, 997, 1492, 736, 1069, 978, 513, 624, 1146, 482, 224];
 
     // below is correct
 //    let capacity = 1000;
@@ -107,11 +111,14 @@ fn main() {
         .add_buffer(result_buffer.clone()).unwrap()
         .build().unwrap());
 
-    let size = capacity / 32 + 1;
+    let zsize = 1;
+    let ysize = capacity / 65536 + 1;
+    let xsize = capacity / ysize / 32 + 1;
+    println!("Dimensions: ({}, {}, {})", xsize, ysize, zsize);
 
     let command_buffer = AutoCommandBufferBuilder::new(device.clone(),
         queue.family()).unwrap()
-        .dispatch([size, 1, 1], pipeline.clone(), set.clone(), [capacity, num_items]).unwrap()
+        .dispatch([xsize, ysize, zsize], pipeline.clone(), set.clone(), [capacity, num_items]).unwrap()
         .build().unwrap();
 
     let finished = command_buffer.execute(queue.clone()).unwrap();
