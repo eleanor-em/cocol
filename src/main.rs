@@ -54,9 +54,25 @@ fn main() {
     let (device, mut queues) = init().expect("Failed to initialise Vulkan");
     let queue = queues.next().unwrap();
 
-    let data_iter = 0..65536;
-    let data_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), data_iter)
-        .expect("Failed to create buffer");
+    // 16341
+    let capacity = 10000;
+    let values = [795u32, 435, 499, 56, 268, 958, 1495, 425, 1340, 512, 126, 1210, 97, 1281, 922, 915, 557, 709, 1524, 81, 186, 1288, 1075, 1007, 714];
+    let weights = [424u32, 876, 248, 1279, 829, 286, 1066, 1371, 384, 315, 762, 182, 289, 914, 419, 997, 1492, 736, 1069, 978, 513, 624, 1146, 482, 224];
+
+    // below is correct
+//    let capacity = 1000;
+//    let values = [104u32, 84, 28, 111, 69, 113, 60, 52, 36, 8, 57, 70, 93, 0, 57, 37, 24, 110, 79, 1, 28, 9, 113, 68, 68, 89, 41, 54, 8, 111, 93, 27, 47, 104, 69];
+//    let weights = [38u32, 0, 53, 52, 49, 90, 91, 5, 42, 78, 38, 8, 113, 4, 102, 24, 9, 33, 35, 0, 56, 70, 106, 103, 28, 87, 43, 110, 64, 20, 89, 82, 34, 9, 31];
+
+    let num_items = values.len() as u32;
+    let result_iter = (0..((capacity + 1) * (num_items + 1))).map(|_| 0);
+
+    let value_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), values.iter().cloned())
+        .expect("Failed to create value buffer");
+    let weight_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), weights.iter().cloned())
+        .expect("Failed to create weight buffer");
+    let result_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), result_iter)
+        .expect("Failed to create result buffer");
 
     let shader = cs::Shader::load(device.clone())
         .expect("Failed to create shader module");
@@ -65,40 +81,73 @@ fn main() {
                                 .expect("Failed to create pipeline"));
 
     let set = Arc::new(PersistentDescriptorSet::start(pipeline.clone(), 0)
-        .add_buffer(data_buffer.clone()).unwrap()
+        .add_buffer(value_buffer.clone()).unwrap()
+        .add_buffer(weight_buffer.clone()).unwrap()
+        .add_buffer(result_buffer.clone()).unwrap()
         .build().unwrap());
+
+    let size = capacity / 32 + 1;
 
     let command_buffer = AutoCommandBufferBuilder::new(device.clone(),
         queue.family()).unwrap()
-        .dispatch([1024, 1, 1], pipeline.clone(), set.clone(), ()).unwrap()
+        .dispatch([size, 1, 1], pipeline.clone(), set.clone(), [capacity, num_items]).unwrap()
         .build().unwrap();
 
     let finished = command_buffer.execute(queue.clone()).unwrap();
     finished.then_signal_fence_and_flush().unwrap()
         .wait(None).unwrap();
 
-    let content = data_buffer.read().unwrap();
-    for (n, val) in content.iter().enumerate() {
-        assert_eq!(*val, n as u32 * 12);
-    }
+    let result = result_buffer.read().unwrap();
 
+    println!("Max value: {}", result.last().unwrap());
     println!("Done.");
 }
 
 mod cs {
     vulkano_shaders::shader!{
         ty: "compute",
-        src:"\
+        src: "\
 #version 450
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-layout(set = 0, binding = 0) buffer Data {
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform Metadata {
+    uint capacity;
+    uint num_items;
+} metadata;
+
+layout(set = 0, binding = 0) buffer Values {
     uint data[];
-} buf;
+} values;
+layout(set = 0, binding = 1) buffer Weights {
+    uint data[];
+} weights;
+layout(set = 0, binding = 2) coherent buffer Result {
+    uint data[];
+} result;
+
+uint get(uint x, uint y, uint size) {
+    return x * size + y;
+}
 
 void main() {
-    uint idx = gl_GlobalInvocationID.x;
-    buf.data[idx] *= 12;
+    uint w = gl_GlobalInvocationID.x;
+    uint size = metadata.capacity + 1;
+
+    if (w > 0 && w < size) {
+        for (uint i = 1; i <= metadata.num_items; ++i) {
+            uint new_value = result.data[get(i - 1, w, size)];
+            uint drop_last = result.data[get(i - 1, w - weights.data[i - 1], size)];
+
+            if (weights.data[i - 1] <= w) {
+                new_value = max(values.data[i - 1] + drop_last, new_value);
+            }
+
+            result.data[get(i, w, size)] = new_value;
+
+            memoryBarrierBuffer();
+        }
+    }
 }
         "
     }
