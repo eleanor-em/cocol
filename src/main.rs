@@ -5,11 +5,6 @@ use vulkano::device::QueuesIter;
 use vulkano::instance::Instance;
 use vulkano::instance::InstanceExtensions;
 use vulkano::instance::PhysicalDevice;
-
-use simple_error::SimpleError;
-
-use std::sync::Arc;
-use std::error::Error;
 use vulkano::buffer::BufferUsage;
 use vulkano::buffer::CpuAccessibleBuffer;
 use vulkano::pipeline::ComputePipeline;
@@ -17,6 +12,11 @@ use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBuffer};
 use vulkano::sync::GpuFuture;
 use vulkano::descriptor::PipelineLayoutAbstract;
+
+use simple_error::SimpleError;
+
+use std::sync::Arc;
+use std::error::Error;
 
 #[inline]
 fn fail(s: &str) -> SimpleError {
@@ -51,6 +51,24 @@ fn init() -> Result<(Arc<Device>, QueuesIter), Box<dyn Error>> {
     Ok((device, queues))
 }
 
+fn create_buffer<T, I>(device: &Arc<Device>, data: I, )
+                    -> Result<Arc<CpuAccessibleBuffer<[T]>>, Box<dyn Error>>
+        where I: ExactSizeIterator<Item = T>,
+              T: 'static
+{
+    let usage = BufferUsage {
+        storage_buffer: true,
+        ..BufferUsage::none()
+    };
+
+    let buffer = CpuAccessibleBuffer::from_iter(device.clone(),
+                                   usage,
+                                   false,
+                                   data)?;
+
+    Ok(buffer)
+}
+
 fn main() {
     let (device, mut queues) = init().expect("Failed to initialise Vulkan");
     let queue = queues.next().unwrap();
@@ -68,50 +86,11 @@ fn main() {
     let num_items = values.len() as u32;
     let result_iter = (0..((capacity + 1) * (num_items + 1))).map(|_| 0);
 
-    let value_buffer = CpuAccessibleBuffer::from_iter(device.clone(),
-                                                      BufferUsage {
-                                                          transfer_source: true,
-                                                          transfer_destination: true,
-                                                          uniform_texel_buffer: false,
-                                                          storage_texel_buffer: false,
-                                                          uniform_buffer: false,
-                                                          storage_buffer: true,
-                                                          index_buffer: false,
-                                                          vertex_buffer: false,
-                                                          indirect_buffer: false
-                                                      },
-                                                      false,
-                                                      values.iter().cloned())
+    let value_buffer = create_buffer(&device, values.iter().cloned())
         .expect("Failed to create value buffer");
-    let weight_buffer = CpuAccessibleBuffer::from_iter(device.clone(),
-                                                       BufferUsage {
-                                                           transfer_source: true,
-                                                           transfer_destination: true,
-                                                           uniform_texel_buffer: false,
-                                                           storage_texel_buffer: false,
-                                                           uniform_buffer: false,
-                                                           storage_buffer: true,
-                                                           index_buffer: false,
-                                                           vertex_buffer: false,
-                                                           indirect_buffer: false
-                                                       },
-                                                       false,
-                                                       weights.iter().cloned())
+    let weight_buffer = create_buffer(&device, weights.iter().cloned())
         .expect("Failed to create weight buffer");
-    let result_buffer = CpuAccessibleBuffer::from_iter(device.clone(),
-                                                       BufferUsage {
-                                                           transfer_source: true,
-                                                           transfer_destination: true,
-                                                           uniform_texel_buffer: false,
-                                                           storage_texel_buffer: false,
-                                                           uniform_buffer: false,
-                                                           storage_buffer: true,
-                                                           index_buffer: false,
-                                                           vertex_buffer: false,
-                                                           indirect_buffer: false
-                                                       },
-                                                       false,
-                                                       result_iter)
+    let result_buffer = create_buffer(&device, result_iter)
         .expect("Failed to create result buffer");
 
     let shader = cs::Shader::load(device.clone())
