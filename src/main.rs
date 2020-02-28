@@ -16,6 +16,7 @@ use vulkano::pipeline::ComputePipeline;
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBuffer};
 use vulkano::sync::GpuFuture;
+use vulkano::descriptor::PipelineLayoutAbstract;
 
 #[inline]
 fn fail(s: &str) -> SimpleError {
@@ -44,7 +45,7 @@ fn init() -> Result<(Arc<Device>, QueuesIter), Box<dyn Error>> {
 
     let (device, queues) = Device::new(physical_device,
          &Features::none(),
-         &DeviceExtensions::none(),
+         &DeviceExtensions{khr_storage_buffer_storage_class:true, ..DeviceExtensions::none()},
          [(queue_family, 0.5)].iter().cloned())?;
     
     Ok((device, queues))
@@ -67,11 +68,50 @@ fn main() {
     let num_items = values.len() as u32;
     let result_iter = (0..((capacity + 1) * (num_items + 1))).map(|_| 0);
 
-    let value_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), values.iter().cloned())
+    let value_buffer = CpuAccessibleBuffer::from_iter(device.clone(),
+                                                      BufferUsage {
+                                                          transfer_source: true,
+                                                          transfer_destination: true,
+                                                          uniform_texel_buffer: false,
+                                                          storage_texel_buffer: false,
+                                                          uniform_buffer: false,
+                                                          storage_buffer: true,
+                                                          index_buffer: false,
+                                                          vertex_buffer: false,
+                                                          indirect_buffer: false
+                                                      },
+                                                      false,
+                                                      values.iter().cloned())
         .expect("Failed to create value buffer");
-    let weight_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), weights.iter().cloned())
+    let weight_buffer = CpuAccessibleBuffer::from_iter(device.clone(),
+                                                       BufferUsage {
+                                                           transfer_source: true,
+                                                           transfer_destination: true,
+                                                           uniform_texel_buffer: false,
+                                                           storage_texel_buffer: false,
+                                                           uniform_buffer: false,
+                                                           storage_buffer: true,
+                                                           index_buffer: false,
+                                                           vertex_buffer: false,
+                                                           indirect_buffer: false
+                                                       },
+                                                       false,
+                                                       weights.iter().cloned())
         .expect("Failed to create weight buffer");
-    let result_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), result_iter)
+    let result_buffer = CpuAccessibleBuffer::from_iter(device.clone(),
+                                                       BufferUsage {
+                                                           transfer_source: true,
+                                                           transfer_destination: true,
+                                                           uniform_texel_buffer: false,
+                                                           storage_texel_buffer: false,
+                                                           uniform_buffer: false,
+                                                           storage_buffer: true,
+                                                           index_buffer: false,
+                                                           vertex_buffer: false,
+                                                           indirect_buffer: false
+                                                       },
+                                                       false,
+                                                       result_iter)
         .expect("Failed to create result buffer");
 
     let shader = cs::Shader::load(device.clone())
@@ -80,7 +120,9 @@ fn main() {
     let pipeline = Arc::new(ComputePipeline::new(device.clone(), &shader.main_entry_point(), &())
                                 .expect("Failed to create pipeline"));
 
-    let set = Arc::new(PersistentDescriptorSet::start(pipeline.clone(), 0)
+    let layout = pipeline.layout().descriptor_set_layout(0)
+        .expect("Failed to create descriptor set layout");
+    let set = Arc::new(PersistentDescriptorSet::start(layout.clone())
         .add_buffer(value_buffer.clone()).unwrap()
         .add_buffer(weight_buffer.clone()).unwrap()
         .add_buffer(result_buffer.clone()).unwrap()
@@ -106,49 +148,6 @@ fn main() {
 mod cs {
     vulkano_shaders::shader!{
         ty: "compute",
-        src: "\
-#version 450
-
-layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform Metadata {
-    uint capacity;
-    uint num_items;
-} metadata;
-
-layout(set = 0, binding = 0) buffer Values {
-    uint data[];
-} values;
-layout(set = 0, binding = 1) buffer Weights {
-    uint data[];
-} weights;
-layout(set = 0, binding = 2) buffer Result {
-    uint data[];
-} result;
-
-uint get(uint x, uint y, uint size) {
-    return x * size + y;
-}
-
-void main() {
-    uint w = gl_GlobalInvocationID.x;
-    uint size = metadata.capacity + 1;
-
-    if (w > 0 && w < size) {
-        for (uint i = 1; i <= metadata.num_items; ++i) {
-            uint new_value = result.data[get(i - 1, w, size)];
-            uint drop_last = result.data[get(i - 1, w - weights.data[i - 1], size)];
-
-            if (weights.data[i - 1] <= w) {
-                new_value = max(values.data[i - 1] + drop_last, new_value);
-            }
-
-            result.data[get(i, w, size)] = new_value;
-
-            memoryBarrierBuffer();
-        }
-    }
-}
-        "
+        path: "knapsack.shader"
     }
 }
