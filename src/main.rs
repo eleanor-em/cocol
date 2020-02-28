@@ -122,7 +122,7 @@ layout(set = 0, binding = 0) buffer Values {
 layout(set = 0, binding = 1) buffer Weights {
     uint data[];
 } weights;
-layout(set = 0, binding = 2) coherent buffer Result {
+layout(set = 0, binding = 2) buffer Result {
     uint data[];
 } result;
 
