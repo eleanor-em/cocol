@@ -142,17 +142,27 @@ use std::fs;
 use nom::error::VerboseError;
 use vk_compute::lang::expr::expression;
 use nom::multi::many1;
+use nom_locate::LocatedSpan;
 
 fn main() {
     let filename = "sample/foo.src";
 
     let original = fs::read_to_string(filename)
         .expect("Could not read file") + "\n";
-    print!("{}", original);
 
-    println!("===");
-    let (remain, vals) = many1(expression::<VerboseError<&str>>)(original.as_str()).unwrap();
-        //many_values::<VerboseError<&str>>(original.as_str()).unwrap();
-
-    print!("{:?}\n{:?}", remain, vals);
+    let state = LocatedSpan::<&str>::new(original.as_str());
+    let (remain, vals) = many1(expression)(state).unwrap();
+    if remain.fragment().len() > 0 {
+        let line = remain.location_line();
+        let next_line = remain.fragment().split('\n').next().unwrap_or("");
+        let orig_line = original.split('\n').collect::<Vec<&str>>()[(line - 1) as usize];
+        println!("error: at line {}, column {}: unexpected symbol `{}`:\n\t{}\n\t{}^",
+                 line,
+                 remain.get_column(),
+                 next_line.as_bytes()[0] as char,
+                 orig_line,
+                 " ".repeat(remain.get_column() - 1));
+    } else {
+        println!("{:#?}", vals);
+    }
 }
