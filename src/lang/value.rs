@@ -62,7 +62,3 @@ pub fn any_value<'a, E: ParseError<&'a str>>(input: &'a str) -> IResult<&'a str,
                     int_value))
     )(input)
 }
-
-pub fn many_values<'a, E: ParseError<&'a str>>(input: &'a str) -> IResult<&'a str, Vec<Value>, E> {
-    many1(any_value)(input)
-}
